@@ -16,6 +16,7 @@
 // TODO functions:     index_load, index_save, index_add
 
 #include "index.h"
+#include "pes.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +24,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
+
+// Forward declarations
+int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
+uint32_t get_file_mode(const char *path);
 
 // ─── PROVIDED ────────────────────────────────────────────────────────────────
 
@@ -135,10 +140,37 @@ int index_status(const Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_load(Index *index) {
-    // TODO: Implement index loading
-    // (See Lab Appendix for logical steps)
-    (void)index;
-    return -1;
+
+    index->count = 0;
+
+    FILE *f = fopen(INDEX_FILE, "r");
+
+    if (!f)
+        return 0;
+
+    while (index->count < MAX_INDEX_ENTRIES) {
+
+        IndexEntry *e = &index->entries[index->count];
+
+        char hash_hex[HASH_HEX_SIZE + 1];
+
+        if (fscanf(f,
+                   "%o %64s %lu %u %255s",
+                   &e->mode,
+                   hash_hex,
+                   &e->mtime_sec,
+                   &e->size,
+                   e->path) != 5)
+            break;
+
+        hex_to_hash(hash_hex, &e->hash);
+
+        index->count++;
+    }
+
+    fclose(f);
+
+    return 0;
 }
 
 // Save the index to .pes/index atomically.
@@ -151,11 +183,69 @@ int index_load(Index *index) {
 //   - rename                           : atomically moving the temp file over the old index
 //
 // Returns 0 on success, -1 on error.
+static int compare_entries(const void *a, const void *b) {
+
+    return strcmp(
+        ((IndexEntry*)a)->path,
+        ((IndexEntry*)b)->path
+    );
+}
+
 int index_save(const Index *index) {
-    // TODO: Implement atomic index saving
-    // (See Lab Appendix for logical steps)
-    (void)index;
-    return -1;
+
+    char tmp[] = INDEX_FILE ".tmp";
+
+    FILE *f = fopen(tmp, "w");
+
+    if (!f)
+        return -1;
+
+    Index *sorted = malloc(sizeof(Index));
+    if (!sorted) {
+        fclose(f);
+        return -1;
+    }
+
+    memcpy(sorted, index, sizeof(Index));
+
+    qsort(
+        sorted->entries,
+        sorted->count,
+        sizeof(IndexEntry),
+        compare_entries
+    );
+
+    for (int i = 0; i < sorted->count; i++) {
+
+        char hex[HASH_HEX_SIZE + 1];
+
+        hash_to_hex(
+            &sorted->entries[i].hash,
+            hex
+        );
+
+        fprintf(
+            f,
+            "%o %s %lu %u %s\n",
+            sorted->entries[i].mode,
+            hex,
+            sorted->entries[i].mtime_sec,
+            sorted->entries[i].size,
+            sorted->entries[i].path
+        );
+    }
+
+    fflush(f);
+
+    fsync(fileno(f));
+
+    fclose(f);
+
+    free(sorted);
+
+    rename(tmp, INDEX_FILE);
+
+    return 0;
 }
 
 // Stage a file for the next commit.
@@ -168,8 +258,70 @@ int index_save(const Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_add(Index *index, const char *path) {
-    // TODO: Implement file staging
-    // (See Lab Appendix for logical steps)
-    (void)index; (void)path;
-    return -1;
+
+    struct stat st;
+
+    if (stat(path, &st) != 0)
+        return -1;
+
+    FILE *f = fopen(path, "rb");
+
+    if (!f)
+        return -1;
+
+    void *data = malloc(st.st_size);
+
+    fread(
+        data,
+        1,
+        st.st_size,
+        f
+    );
+
+    fclose(f);
+
+    ObjectID id;
+
+    if (object_write(
+            OBJ_BLOB,
+            data,
+            st.st_size,
+            &id
+        ) != 0) {
+
+        free(data);
+
+        return -1;
+    }
+
+    free(data);
+
+    IndexEntry *existing =
+        index_find(index, path);
+
+    if (!existing) {
+
+        existing =
+            &index->entries[index->count++];
+
+    }
+
+    existing->mode =
+        get_file_mode(path);
+
+    existing->hash = id;
+
+    existing->mtime_sec =
+        st.st_mtime;
+
+    existing->size =
+        st.st_size;
+
+    strncpy(
+        existing->path,
+        path,
+        sizeof(existing->path)-1
+    );
+
+    return index_save(index);
 }

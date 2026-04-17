@@ -10,11 +10,14 @@
 //   "100644 hello.txt\0" followed by 32 raw bytes of SHA-256
 
 #include "tree.h"
+#include "index.h"
+#include "pes.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
 
 // ─── Mode Constants ─────────────────────────────────────────────────────────
 
@@ -137,36 +140,51 @@ int tree_from_index(ObjectID *id_out) {
         return -1;
 
     Tree tree;
+
     tree.count = 0;
 
-    for (size_t i = 0; i < index.count; i++) {
+    for (int i = 0; i < index.count; i++) {
 
-        TreeEntry *entry = &tree.entries[tree.count];
+        TreeEntry *entry =
+        &tree.entries[tree.count];
 
-        entry->mode = index.entries[i].mode;
+        entry->mode =
+        index.entries[i].mode;
 
-        entry->hash = index.entries[i].id;
+        entry->hash =
+        index.entries[i].hash;
 
-        strncpy(entry->name,
-                index.entries[i].path,
-                sizeof(entry->name) - 1);
+        strncpy(
+            entry->name,
+            index.entries[i].path,
+            sizeof(entry->name)-1
+        );
 
-        entry->name[sizeof(entry->name) - 1] = '\0';
+        entry->name[
+            sizeof(entry->name)-1
+        ] = '\0';
 
         tree.count++;
     }
 
     void *data;
+
     size_t len;
 
-    if (tree_serialize(&tree, &data, &len) != 0)
+    if (tree_serialize(
+            &tree,
+            &data,
+            &len
+        ) != 0)
         return -1;
 
     int rc =
-    object_write(OBJ_TREE,
-                 data,
-                 len,
-                 id_out);
+    object_write(
+        OBJ_TREE,
+        data,
+        len,
+        id_out
+    );
 
     free(data);
 
