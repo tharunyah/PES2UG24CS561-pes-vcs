@@ -1,3 +1,5 @@
+// Phase 1: object structure implementation
+
 // object.c — Content-addressable object store
 //
 // Every piece of data (file contents, directory listings, commits) is stored
@@ -36,6 +38,7 @@ int hex_to_hash(const char *hex, ObjectID *id_out) {
     return 0;
 }
 
+// compute SHA256 hash for content-addressable storage
 void compute_hash(const void *data, size_t len, ObjectID *id_out) {
     unsigned int hash_len;
     EVP_MD_CTX *ctx = EVP_MD_CTX_new();
@@ -92,6 +95,7 @@ int object_exists(const ObjectID *id) {
 //
 
 //
+// store blob/tree/commit object in .pes/objects
 // Returns 0 on success, -1 on error.
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out) {
 
@@ -190,6 +194,7 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
 //   - memcmp             : comparing the computed hash against the requested hash
 //   - malloc, memcpy     : allocating and returning the extracted data
 //
+// read stored object and verify integrity
 // The caller is responsible for calling free(*data_out).
 // Returns 0 on success, -1 on error (file not found, corrupt, etc.).
 int object_read(const ObjectID *id, ObjectType *type_out,
